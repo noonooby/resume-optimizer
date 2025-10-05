@@ -7,7 +7,6 @@ export async function POST(request) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const supabaseKey = process.env.SUPABASE_SERVICE_KEY
     
-    // Save to history
     const dbResponse = await fetch(`${supabaseUrl}/rest/v1/generated_resumes`, {
       method: 'POST',
       headers: {
@@ -26,17 +25,21 @@ export async function POST(request) {
     })
 
     if (!dbResponse.ok) {
-      const errorText = await dbResponse.text()
       return NextResponse.json({ error: 'Database error' }, { status: 500 })
     }
 
     const data = await dbResponse.json()
 
-    // Generate text file
-    let resumeText = `${optimizedContent.summary}\n\nWORK EXPERIENCE\n\n`
+    // Generate text with preserved bold formatting
+    let resumeText = `${optimizedContent.summary}\n\n`
+    resumeText += 'WORK EXPERIENCE\n\n'
+    
     optimizedContent.experiences.forEach(exp => {
-      resumeText += `${exp.title} | ${exp.company}\n${exp.dates}\n`
-      exp.bullets.forEach(bullet => resumeText += `• ${bullet}\n`)
+      resumeText += `${exp.company}, ${exp.title}, ${exp.dates}\n\n`
+      exp.bullets.forEach(bullet => {
+        // Keep ** markers in output
+        resumeText += `- ${bullet}\n`
+      })
       resumeText += '\n'
     })
 

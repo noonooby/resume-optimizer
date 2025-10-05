@@ -20,52 +20,60 @@ export async function POST(request) {
       text = buffer.toString('utf-8')
     }
     
-    // Parse resume
-    const lines = text.split('\n').filter(line => line.trim())
+    const lines = text.split('\n').map(line => line.trim()).filter(line => line)
+    
     let summary = ''
     const experiences = []
     let currentSection = ''
     let currentExp = null
+    let summaryLines = []
+    let foundFirstSection = false
     
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim()
+      const line = lines[i]
       
-      if (line.toUpperCase().includes('SUMMARY') || line.toUpperCase().includes('OBJECTIVE')) {
-        currentSection = 'summary'
-        continue
-      } else if (line.toUpperCase().includes('EXPERIENCE') || line.toUpperCase().includes('WORK HISTORY')) {
-        currentSection = 'experience'
-        continue
-      } else if (line.toUpperCase().includes('EDUCATION') || line.toUpperCase().includes('SKILLS')) {
-        currentSection = 'other'
-        continue
-      }
-      
-      if (currentSection === 'summary' && !line.match(/^\d{4}/) && summary.length < 500) {
-        summary += (summary ? ' ' : '') + line
-      }
-      
-      if (currentSection === 'experience') {
-        const datePattern = /\d{4}\s*[-–]\s*(\d{4}|Present|Current)/i
+      if (line.match(/^(Certifications?|Work Experience|Experience|Education|Skills|Projects)/i)) {
+        foundFirstSection = true
+        currentSection = line.toLowerCase()
         
-        if (datePattern.test(line)) {
-          if (currentExp && currentExp.bullets.length > 0) {
-            experiences.push(currentExp)
-          }
+        if (!summary && summaryLines.length > 0) {
+          summary = summaryLines.join(' ')
+        }
+        continue
+      }
+      
+      if (!foundFirstSection) {
+        summaryLines.push(line)
+        continue
+      }
+      
+      if (currentSection.includes('experience')) {
+        if (line.startsWith('###')) {
+          const cleanLine = line.replace(/^###\s*/, '')
+          const parts = cleanLine.split(',').map(p => p.trim())
           
-          const dateMatch = line.match(datePattern)
-          const parts = line.split('|').map(p => p.trim())
-          
-          currentExp = {
-            company: parts[0] || 'Company',
-            title: parts[1] || parts[0] || 'Title',
-            dates: dateMatch ? dateMatch[0] : 'Dates',
-            bullets: []
+          if (parts.length >= 3) {
+            if (currentExp && currentExp.bullets.length > 0) {
+              experiences.push(currentExp)
+            }
+            
+            const lastPart = parts[parts.length - 1]
+            const dateMatch = lastPart.match(/([A-Za-z]+\s+\d{4}\s*-\s*[A-Za-z]+\s*\d{0,4}|[A-Za-z]+\s+\d{4}\s*-\s*PRESENT)/i)
+            
+            currentExp = {
+              company: parts[0],
+              title: parts[1],
+              dates: dateMatch ? dateMatch[1] : lastPart,
+              bullets: []
+            }
           }
-        } else if (currentExp && (line.startsWith('•') || line.startsWith('-') || line.startsWith('*'))) {
-          currentExp.bullets.push(line.replace(/^[•\-*]\s*/, ''))
-        } else if (currentExp && line.length > 20 && !line.match(/^[A-Z\s]+$/)) {
-          currentExp.bullets.push(line)
+        }
+        else if (currentExp && (line.startsWith('-') || line.startsWith('•') || line.startsWith('*'))) {
+          const bullet = line.replace(/^[-•*]\s*/, '').trim()
+          // PRESERVE bold markers (**text**)
+          if (bullet.length > 10) {
+            currentExp.bullets.push(bullet)
+          }
         }
       }
     }
@@ -73,8 +81,11 @@ export async function POST(request) {
     if (currentExp && currentExp.bullets.length > 0) {
       experiences.push(currentExp)
     }
+    
+    if (!summary && summaryLines.length > 0) {
+      summary = summaryLines.join(' ')
+    }
 
-    // Save to Supabase
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const supabaseKey = process.env.SUPABASE_SERVICE_KEY
     
@@ -96,7 +107,7 @@ export async function POST(request) {
 
     if (!dbResponse.ok) {
       const errorText = await dbResponse.text()
-      return NextResponse.json({ error: 'Database error: ' + errorText }, { status: 500 })
+      return NextResponse.json({ error: 'Database error' }, { status: 500 })
     }
 
     const data = await dbResponse.json()
